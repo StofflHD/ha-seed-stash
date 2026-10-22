@@ -76,6 +76,7 @@
     ],
   };
 
+  const firstFreeNr = () => { const used = new Set(data.seeds.map((x) => x.nr)); let nr = 1; while (used.has(nr)) nr++; return nr; };
   const recompute = () => {
     data.seeds.sort((a, b) => a.nr - b.nr);
     const stock = data.seeds.filter((s) => s.quantity > 0);
@@ -103,7 +104,7 @@
           push();
           return { seed_id: s.id };
         }
-        const s = seed({ ...msg.seed, nr: msg.seed.nr ?? Math.max(...data.seeds.map((x) => x.nr)) + 1, created: today });
+        const s = seed({ ...msg.seed, nr: msg.seed.nr ?? firstFreeNr(), created: today });
         data.seeds.push(s);
         push();
         return { seed_id: s.id };

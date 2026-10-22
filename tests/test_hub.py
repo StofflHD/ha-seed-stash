@@ -72,8 +72,9 @@ def test_validate_rejects(data: dict) -> None:
 
 
 async def test_add_assigns_next_nr_and_logs(stash: SeedStash) -> None:
+    # Belegt sind 1, 2 und 7: die erste Lücke ist 3
     seed = await stash.async_add_seed({"name": "Neu", "quantity": 4})
-    assert seed["nr"] == 8
+    assert seed["nr"] == 3
     assert seed["created"] == "2026-09-15"
     assert seed["log"] == [
         {
@@ -188,10 +189,38 @@ async def test_import_append_renumbers_duplicates(stash: SeedStash) -> None:
     )
     assert count == 2
     imported = stash.resolve("Doppelt")
-    assert imported["nr"] == 8
+    assert imported["nr"] == 3
     assert imported["code"] is None
     assert imported["log"][0]["kind"] == "import"
-    assert stash.resolve("Ohne Nr.")["nr"] == 9
+    assert stash.resolve("Ohne Nr.")["nr"] == 4
+
+
+async def test_next_nr_fills_gaps(stash: SeedStash) -> None:
+    assert stash.next_nr() == 3
+    await stash.async_add_seed({"name": "Drei"})
+    await stash.async_delete_seed(stash.resolve(1)["id"])
+    assert stash.next_nr() == 1
+    assert (await stash.async_add_seed({"name": "Eins"}))["nr"] == 1
+    assert (await stash.async_add_seed({"name": "Vier"}))["nr"] == 4
+
+
+async def test_import_keeps_numbers_of_later_rows(stash: SeedStash) -> None:
+    """Zeilen ohne Nr. nehmen keine Nummer, die eine spätere Zeile mitbringt."""
+    await stash.async_import(
+        [
+            {"name": "Ohne A"},
+            {"name": "Ohne B"},
+            {"name": "Mit 1", "nr": 1},
+            {"name": "Mit 3", "nr": 3},
+        ],
+        replace=True,
+    )
+    assert {s["name"]: s["nr"] for s in stash.seeds.values()} == {
+        "Mit 1": 1,
+        "Ohne A": 2,
+        "Ohne B": 4,
+        "Mit 3": 3,
+    }
 
 
 async def test_import_replace_and_rollback(stash: SeedStash) -> None:

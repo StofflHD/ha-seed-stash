@@ -301,8 +301,13 @@ class SeedStash:
                     return seed
         raise ServiceValidationError(f"Unbekannter Eintrag: {value}")
 
-    def next_nr(self) -> int:
-        return max((seed[FIELD_NR] for seed in self.seeds.values()), default=0) + 1
+    def next_nr(self, reserved: set[int] | frozenset[int] = frozenset()) -> int:
+        """Kleinste freie Nummer (füllt Lücken, z. B. nach dem Löschen)."""
+        used = {seed[FIELD_NR] for seed in self.seeds.values()} | reserved
+        nr = 1
+        while nr in used:
+            nr += 1
+        return nr
 
     def _check_unique(self, seed: dict[str, Any], own_id: str | None = None) -> None:
         for other in self.seeds.values():
@@ -357,10 +362,12 @@ class SeedStash:
             start += sum(item["delta"] for item in dropped)
             cls._recompute_log(seed, start)
 
-    def _new_seed(self, data: dict[str, Any], log_kind: str) -> dict[str, Any]:
+    def _new_seed(
+        self, data: dict[str, Any], log_kind: str, reserved: set[int] | frozenset[int] = frozenset()
+    ) -> dict[str, Any]:
         seed = validate_seed(data)
         if seed[FIELD_NR] is None:
-            seed[FIELD_NR] = self.next_nr()
+            seed[FIELD_NR] = self.next_nr(reserved)
         self._check_unique(seed)
         today = dt_util.now().date()
         seed.update(id=uuid4().hex, created=today.isoformat(), log=[])
@@ -491,18 +498,24 @@ class SeedStash:
 
         Erst werden alle Einträge geprüft, damit ein Fehler nichts halb übernimmt.
         Belegte Nummern und Kürzel werden beim Anhängen neu vergeben bzw. geleert.
+        Zeilen ohne Nummer bekommen freie Nummern, aber keine, die eine andere Zeile
+        der Datei mitbringt.
         """
         previous = self.seeds
         self.seeds = {} if replace else dict(previous)
+        taken = {s[FIELD_NR] for s in self.seeds.values()}
+        reserved = {nr for data in entries if (nr := data.get(FIELD_NR)) and nr not in taken}
         try:
             for data in entries:
                 data = dict(data)
                 if data.get(FIELD_NR) in {s[FIELD_NR] for s in self.seeds.values()}:
                     data[FIELD_NR] = None
+                if data.get(FIELD_NR) is not None:
+                    reserved.discard(data[FIELD_NR])
                 code = (data.get(FIELD_CODE) or "").casefold()
                 if code and code in {(s[FIELD_CODE] or "").casefold() for s in self.seeds.values()}:
                     data[FIELD_CODE] = None
-                seed = self._new_seed(data, LOG_IMPORT)
+                seed = self._new_seed(data, LOG_IMPORT, reserved)
                 self.seeds[seed["id"]] = seed
         except ServiceValidationError:
             self.seeds = previous
