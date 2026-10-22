@@ -1,0 +1,56 @@
+take_seeds:
+  fields:
+    seed:
+      required: true
+      example: "PB"
+      selector:
+        text:
+    count:
+      required: true
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 1000
+          mode: box
+    kind:
+      required: false
+      default: germinated
+      selector:
+        select:
+          translation_key: take_kind
+          options:
+            - germinated
+            - removed
+    date:
+      required: false
+      selector:
+        date:
+    note:
+      required: false
+      selector:
+        text:
+
+add_seeds:
+  fields:
+    seed:
+      required: true
+      example: "PB"
+      selector:
+        text:
+    count:
+      required: true
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 1000
+          mode: box
+    date:
+      required: false
+      selector:
+        date:
+    note:
+      required: false
+      selector:
+        text:

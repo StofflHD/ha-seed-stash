@@ -1,0 +1,75 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Seed Stash einrichten",
+        "description": "Deine Samen pflegst du anschließend im Seitenleisten-Panel **Seed Stash**. Dort kannst du auch deine bisherige Excel-Liste als CSV importieren.",
+        "data": {
+          "low_stock": "Wenig Samen ab",
+          "max_age_years": "Alt ab (Jahre)"
+        },
+        "data_description": {
+          "low_stock": "Einträge mit höchstens so vielen Samen zählen als „wenig Samen“.",
+          "max_age_years": "Samen, deren Eingang so viele Jahre oder länger zurückliegt, zählen als alt."
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Seed Stash ist bereits eingerichtet."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Seed Stash",
+        "data": {
+          "low_stock": "Wenig Samen ab",
+          "max_age_years": "Alt ab (Jahre)"
+        },
+        "data_description": {
+          "low_stock": "Einträge mit höchstens so vielen Samen zählen als „wenig Samen“.",
+          "max_age_years": "Samen, deren Eingang so viele Jahre oder länger zurückliegt, zählen als alt."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "total_seeds": { "name": "Samen gesamt", "unit_of_measurement": "Samen" },
+      "strains": { "name": "Sorten vorrätig", "unit_of_measurement": "Sorten" },
+      "low_stock": { "name": "Wenig Samen", "unit_of_measurement": "Sorten" },
+      "old_seeds": { "name": "Alte Samen", "unit_of_measurement": "Sorten" }
+    }
+  },
+  "selector": {
+    "take_kind": {
+      "options": {
+        "germinated": "Gekeimt",
+        "removed": "Abgegeben/sonstiges"
+      }
+    }
+  },
+  "services": {
+    "take_seeds": {
+      "name": "Samen entnehmen",
+      "description": "Zieht Samen vom Bestand ab und protokolliert die Entnahme.",
+      "fields": {
+        "seed": { "name": "Eintrag", "description": "Nr., Kürzel oder Sorte." },
+        "count": { "name": "Anzahl", "description": "Anzahl der entnommenen Samen." },
+        "kind": { "name": "Art", "description": "Wofür die Samen entnommen wurden." },
+        "date": { "name": "Datum", "description": "Standard: heute." },
+        "note": { "name": "Notiz", "description": "Optionale Notiz im Protokoll." }
+      }
+    },
+    "add_seeds": {
+      "name": "Samen hinzufügen",
+      "description": "Erhöht den Bestand eines Eintrags.",
+      "fields": {
+        "seed": { "name": "Eintrag", "description": "Nr., Kürzel oder Sorte." },
+        "count": { "name": "Anzahl", "description": "Anzahl der hinzugefügten Samen." },
+        "date": { "name": "Datum", "description": "Standard: heute." },
+        "note": { "name": "Notiz", "description": "Optionale Notiz im Protokoll." }
+      }
+    }
+  }
+}

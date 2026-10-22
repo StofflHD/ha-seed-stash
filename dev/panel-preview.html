@@ -1,0 +1,137 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seed Stash Panel Preview</title>
+<style>
+  :root {
+    --primary-color: #03a9f4; --primary-background-color: #fafafa; --secondary-background-color: #f0f0f0;
+    --card-background-color: #fff; --primary-text-color: #212121; --secondary-text-color: #727272;
+    --divider-color: rgba(0,0,0,.12); --app-header-background-color: #03a9f4; --app-header-text-color: #fff;
+  }
+  body.dark {
+    --primary-background-color: #111; --secondary-background-color: #282828; --card-background-color: #1c1c1c;
+    --primary-text-color: #e1e1e1; --secondary-text-color: #9b9b9b; --divider-color: rgba(225,225,225,.12);
+    --app-header-background-color: #101e24;
+  }
+  body { margin: 0; }
+</style>
+</head>
+<body>
+<script>
+  // Stub für ha-menu-button
+  customElements.define("ha-menu-button", class extends HTMLElement {
+    connectedCallback() { this.innerHTML = '<span style="display:inline-block;width:40px;text-align:center;font-size:20px">☰</span>'; }
+  });
+
+  const params = new URLSearchParams(location.search);
+  if (params.get("theme") === "dark") document.body.classList.add("dark");
+  const lang = params.get("lang") || "de";
+  const today = "2026-10-22";
+
+  let nextId = 1;
+  const seed = (o) => {
+    const s = Object.assign({
+      id: `s${nextId++}`, lineage: null, breeder: null, source: null, source_type: null, type: null, code: null,
+      genotype: null, flower_min: null, flower_max: null, total_runtime: false, quantity: 0, received: null,
+      notes: null, created: "2026-10-01", log: [],
+    }, o);
+    if (s.quantity && !s.log.length) {
+      s.log.push({ id: `${s.id}_l0`, date: "2026-10-01", kind: "import", delta: s.quantity, quantity: s.quantity, note: null });
+    }
+    return s;
+  };
+
+  const data = {
+    loaded: true, entry_id: "e1", today, low_stock: 3, max_age: 5,
+    seeds: [
+      seed({ nr: 1, name: "Bubble Cross F2", lineage: "Bubble Gum x Sour Gum", breeder: "Gärtner42", source_type: "trade", type: "reg", code: "BC", quantity: 15, received: "2024-11" }),
+      seed({ nr: 2, name: "Lemon Auto", breeder: "Beispiel Seeds", type: "auto_fem", code: "LA", genotype: "indica_dominant", flower_min: 70, flower_max: 75, total_runtime: true, quantity: 2, received: "2024-05", notes: "CBD-THC ausgeglichen" }),
+      seed({ nr: 3, name: "Mountain Mix", breeder: "Kwik Seeds", type: "reg", code: "MM", genotype: "sativa_dominant", quantity: 25, received: "2024-05" }),
+      seed({ nr: 7, name: "Haze Klassiker", breeder: "Altbestand Seeds", type: "fem", code: "HK", genotype: "sativa_dominant", flower_min: 77, flower_max: 84, quantity: 5, received: "2018-2019" }),
+      seed({ nr: 8, name: "Cookies", breeder: "Altbestand Seeds", type: "fem", code: "CO", genotype: "hybrid", flower_min: 63, flower_max: 70, quantity: 0, received: "2018-2019" }),
+      seed({ nr: 23, name: "Dank F5", lineage: "G13 Hash Plant x OG LA Affie", breeder: "Bodhi Seeds", source: "Tauschpartner", source_type: "trade", type: "reg", code: "DF", genotype: "indica", quantity: 12, received: "2025-01" }),
+      seed({ nr: 20, name: "Sour 60", breeder: "SeedHeaven Seeds", type: "auto_reg", code: "S60", flower_min: 60, flower_max: 65, total_runtime: true, quantity: 5, received: "2024-11" }),
+    ],
+  };
+
+  const recompute = () => {
+    data.seeds.sort((a, b) => a.nr - b.nr);
+    const stock = data.seeds.filter((s) => s.quantity > 0);
+    data.total = stock.reduce((sum, s) => sum + s.quantity, 0);
+    data.in_stock = stock.length;
+    data.low_ids = stock.filter((s) => s.quantity <= data.low_stock).map((s) => s.id);
+    data.old_ids = stock.filter((s) => s.received && Number(s.received.slice(0, 4)) <= 2026 - data.max_age).map((s) => s.id);
+  };
+  recompute();
+
+  window.calls = [];
+  const push = () => { recompute(); setTimeout(window.__push, 10); };
+  const hass = {
+    language: lang,
+    themes: { darkMode: params.get("theme") === "dark" },
+    async callWS(msg) {
+      window.calls.push(msg);
+      if (msg.type === "seed_stash/save_seed") {
+        if (data.seeds.some((s) => s.id !== msg.seed_id && msg.seed.code && s.code?.toLowerCase() === msg.seed.code.toLowerCase())) {
+          throw new Error(`Kürzel „${msg.seed.code}“ ist bereits vergeben`);
+        }
+        if (msg.seed_id) {
+          const s = data.seeds.find((x) => x.id === msg.seed_id);
+          Object.assign(s, msg.seed, { nr: msg.seed.nr ?? s.nr });
+          push();
+          return { seed_id: s.id };
+        }
+        const s = seed({ ...msg.seed, nr: msg.seed.nr ?? Math.max(...data.seeds.map((x) => x.nr)) + 1, created: today });
+        data.seeds.push(s);
+        push();
+        return { seed_id: s.id };
+      }
+      if (msg.type === "seed_stash/change_quantity") {
+        const s = data.seeds.find((x) => x.id === msg.seed_id);
+        const old = s.quantity;
+        let next = msg.kind === "added" ? old + msg.count : msg.kind === "correction" ? msg.count : old - msg.count;
+        if (next < 0) throw new Error(`Von „${s.name}“ sind nur noch ${old} Samen da`);
+        s.quantity = next;
+        s.log.push({ id: `${s.id}_l${s.log.length}`, date: msg.date || today, kind: msg.kind, delta: next - old, quantity: next, note: msg.note || null });
+        s.log.sort((a, b) => a.date.localeCompare(b.date));
+        push();
+        return null;
+      }
+      if (msg.type === "seed_stash/delete_seed") {
+        data.seeds = data.seeds.filter((s) => s.id !== msg.seed_id);
+        push();
+        return null;
+      }
+      if (msg.type === "seed_stash/export") return { csv: "﻿Nr.;Sorte\r\n", filename: `samenkiste-${today}.csv` };
+      if (msg.type === "seed_stash/import_preview") {
+        return {
+          rows: [
+            { line: 3, seed: seed({ nr: 1, name: "Pinky Bubble F2", lineage: "Bubble Gum x Sour Gum", breeder: "Maofy", source_type: "trade", type: "reg", code: "PB", quantity: 15, received: "2024-11" }), warnings: [] },
+            { line: 37, seed: seed({ nr: 35, name: "Friesland Indica F2", breeder: "Terpene Titan (Kwik seeds)", type: "reg", code: "FRI", genotype: "indica", flower_min: 56, flower_max: 63, quantity: 0, received: "2025-02" }), warnings: ["Menge fehlt – 0 übernommen"] },
+          ],
+          errors: [{ line: 12, name: "Kaputt", error: "Ungültige Angabe: Blütetage" }],
+        };
+      }
+      if (msg.type === "seed_stash/import") return { imported: 2, skipped: 1 };
+    },
+    connection: {
+      subscribeMessage(cb) {
+        window.__push = () => cb(JSON.parse(JSON.stringify(data)));
+        setTimeout(window.__push, 50);
+        return Promise.resolve(() => {});
+      },
+    },
+  };
+</script>
+<script src="../custom_components/seed_stash/frontend/seed-stash-panel.js"></script>
+<script>
+  const el = document.createElement("seed-stash-panel");
+  el.narrow = window.innerWidth < 870;
+  el.hass = hass;
+  document.body.appendChild(el);
+  window.__panel = el;
+</script>
+</body>
+</html>

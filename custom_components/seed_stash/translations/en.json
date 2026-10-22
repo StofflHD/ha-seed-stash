@@ -1,0 +1,75 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Seed Stash",
+        "description": "Manage your seeds in the **Seed Stash** sidebar panel afterwards. You can also import your existing spreadsheet as CSV there.",
+        "data": {
+          "low_stock": "Low stock at",
+          "max_age_years": "Old after (years)"
+        },
+        "data_description": {
+          "low_stock": "Entries with at most this many seeds count as low stock.",
+          "max_age_years": "Seeds received this many years ago or earlier count as old."
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Seed Stash is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Seed Stash",
+        "data": {
+          "low_stock": "Low stock at",
+          "max_age_years": "Old after (years)"
+        },
+        "data_description": {
+          "low_stock": "Entries with at most this many seeds count as low stock.",
+          "max_age_years": "Seeds received this many years ago or earlier count as old."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "total_seeds": { "name": "Total seeds", "unit_of_measurement": "seeds" },
+      "strains": { "name": "Strains in stock", "unit_of_measurement": "strains" },
+      "low_stock": { "name": "Low stock", "unit_of_measurement": "strains" },
+      "old_seeds": { "name": "Old seeds", "unit_of_measurement": "strains" }
+    }
+  },
+  "selector": {
+    "take_kind": {
+      "options": {
+        "germinated": "Germinated",
+        "removed": "Given away/other"
+      }
+    }
+  },
+  "services": {
+    "take_seeds": {
+      "name": "Take seeds",
+      "description": "Removes seeds from stock and logs it.",
+      "fields": {
+        "seed": { "name": "Entry", "description": "No., code or strain." },
+        "count": { "name": "Count", "description": "Number of seeds taken." },
+        "kind": { "name": "Kind", "description": "What the seeds were taken for." },
+        "date": { "name": "Date", "description": "Default: today." },
+        "note": { "name": "Note", "description": "Optional note in the log." }
+      }
+    },
+    "add_seeds": {
+      "name": "Add seeds",
+      "description": "Increases the stock of an entry.",
+      "fields": {
+        "seed": { "name": "Entry", "description": "No., code or strain." },
+        "count": { "name": "Count", "description": "Number of seeds added." },
+        "date": { "name": "Date", "description": "Default: today." },
+        "note": { "name": "Note", "description": "Optional note in the log." }
+      }
+    }
+  }
+}
