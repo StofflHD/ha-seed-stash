@@ -985,6 +985,9 @@ const STYLES = `
   :host {
     display: block;
     min-height: 100vh;
+    /* Kein Überstand nach rechts, sonst zeigt Home Assistant unten eine Scrollleiste.
+       clip statt hidden, damit die Kopfzeile sticky bleibt. */
+    overflow-x: clip;
     background: var(--primary-background-color);
     color: var(--primary-text-color);
     font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif);

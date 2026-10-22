@@ -125,7 +125,10 @@
     },
   };
 </script>
-<script src="../custom_components/seed_stash/frontend/seed-stash-panel.js"></script>
+<script>
+  // Immer die aktuelle Datei laden, nicht die aus dem Browser-Cache
+  document.write(`<script src="../custom_components/seed_stash/frontend/seed-stash-panel.js?v=${Date.now()}"><\/script>`);
+</script>
 <script>
   const el = document.createElement("seed-stash-panel");
   el.narrow = window.innerWidth < 870;
