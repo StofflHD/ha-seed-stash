@@ -248,3 +248,34 @@ async def test_load_strips_stored_generations(
     # XD ist schon vergeben, deshalb bleibt XD-F3 stehen
     assert [stash.seeds[f"s{nr}"]["code"] for nr in (1, 2, 3)] == ["C99", "XD", "XD-F3"]
     assert hass_storage["seed_stash"]["data"]["seeds"][0]["code"] == "C99"
+
+
+async def test_load_recovers_received_from_notes(
+    hass: HomeAssistant, hass_storage: dict, mock_entry: MockConfigEntry
+) -> None:
+    def stored(nr: int, received: str | None, notes: str | None) -> dict:
+        seed = validate_seed({"name": f"Sorte {nr}", "nr": nr})
+        return {**seed, "id": f"s{nr}", "received": received, "notes": notes, "log": []}
+
+    hass_storage["seed_stash"] = {
+        "version": 1,
+        "key": "seed_stash",
+        "data": {
+            "seeds": [
+                stored(1, None, "Eingang: 11 2024"),
+                stored(2, None, "Lange Keimzeit\nEingang: 02 2025"),
+                stored(3, None, "Eingang: irgendwann"),
+                stored(4, "2024-05", "Eingang: 11 2024"),
+            ]
+        },
+    }
+    mock_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_entry.entry_id)
+    await hass.async_block_till_done()
+
+    seeds = mock_entry.runtime_data.seeds
+    assert (seeds["s1"]["received"], seeds["s1"]["notes"]) == ("2024-11", None)
+    assert (seeds["s2"]["received"], seeds["s2"]["notes"]) == ("2025-02", "Lange Keimzeit")
+    # Nicht erkannt oder schon gesetzt: unverändert
+    assert (seeds["s3"]["received"], seeds["s3"]["notes"]) == (None, "Eingang: irgendwann")
+    assert (seeds["s4"]["received"], seeds["s4"]["notes"]) == ("2024-05", "Eingang: 11 2024")

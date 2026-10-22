@@ -36,7 +36,8 @@ def parse_received(value: str) -> str | None:
         return month(year + 2000 if year < 100 else year, int(m[1]))
     if m := re.fullmatch(r"(\d{1,2})/\d{1,2}/(\d{4})", value):
         return month(int(m[2]), int(m[1]))
-    if m := re.fullmatch(r"(\d{1,2})\s*[./-]\s*(\d{4})", value):
+    # 11.2024, 11/2024, 11-2024, 11 2024
+    if m := re.fullmatch(r"(\d{1,2})(?:\s*[./-]\s*|\s+)(\d{4})", value):
         return month(int(m[2]), int(m[1]))
     if re.fullmatch(r"\d{4}", value):
         return value if 1900 <= int(value) <= 2100 else None

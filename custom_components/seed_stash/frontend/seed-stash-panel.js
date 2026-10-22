@@ -56,6 +56,7 @@ const I18N = {
     none: "–",
     save: "Save",
     saved: "Saved",
+    saving: "Saving …",
     close: "Close",
     cancel: "Cancel",
     delete: "Delete entry",
@@ -148,6 +149,7 @@ const I18N = {
     none: "–",
     save: "Speichern",
     saved: "Gespeichert",
+    saving: "Speichere …",
     close: "Schließen",
     cancel: "Abbrechen",
     delete: "Eintrag löschen",
@@ -787,15 +789,25 @@ class SeedStashPanel extends HTMLElement {
       </form>
     `;
     const form = forms.querySelector("form");
-    form.addEventListener("submit", (ev) => {
+    // Eigener Klick-Handler: nicht davon abhängig, dass der Browser das Formular absendet
+    form.addEventListener("submit", (ev) => ev.preventDefault());
+    form.querySelector("button[type=submit]").addEventListener("click", (ev) => {
       ev.preventDefault();
       this._saveSeed(form, seed);
+    });
+    form.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" && ev.target.tagName === "INPUT") {
+        ev.preventDefault();
+        this._saveSeed(form, seed);
+      }
     });
     forms.querySelector("#delete")?.addEventListener("click", () => this._confirmDelete(seed));
   }
 
   async _saveSeed(form, seed) {
     const status = form.querySelector("#edit-status");
+    const button = form.querySelector("button[type=submit]");
+    if (button.disabled) return;
     // Ungültige Zahl (z. B. "56-63") liefert sonst einen leeren Wert und würde das Feld leeren
     const bad = [...form.elements].find((el) => el.validity?.badInput);
     if (bad) {
@@ -803,19 +815,20 @@ class SeedStashPanel extends HTMLElement {
       bad.focus();
       return;
     }
-    const data = {};
-    for (const el of form.elements) {
-      if (!el.name) continue;
-      if (el.type === "checkbox") data[el.name] = el.checked;
-      else if (el.type === "number") data[el.name] = el.value === "" ? null : Number(el.value);
-      else data[el.name] = el.value.trim() === "" ? null : el.value;
-    }
-    if (data.quantity === null) data.quantity = 0;
-    const msg = { type: "seed_stash/save_seed", seed: data };
-    if (seed) msg.seed_id = seed.id;
-    const button = form.querySelector("button[type=submit]");
     button.disabled = true;
+    status.textContent = this._t("saving");
+    status.className = "status";
     try {
+      const data = {};
+      for (const el of form.elements) {
+        if (!el.name) continue;
+        if (el.type === "checkbox") data[el.name] = el.checked;
+        else if (el.type === "number") data[el.name] = el.value === "" ? null : Number(el.value);
+        else data[el.name] = String(el.value ?? "").trim() || null;
+      }
+      if (data.quantity === null) data.quantity = 0;
+      const msg = { type: "seed_stash/save_seed", seed: data };
+      if (seed) msg.seed_id = seed.id;
       const result = await this._hass.callWS(msg);
       if (seed) {
         this._status(status, this._t("saved"), true);
@@ -826,9 +839,11 @@ class SeedStashPanel extends HTMLElement {
         this._pendingOpen = result.seed_id;
       }
     } catch (err) {
+      console.error("Seed Stash: Speichern fehlgeschlagen", err);
       this._status(status, err?.message || String(err), false);
+    } finally {
+      button.disabled = false;
     }
-    button.disabled = false;
   }
 
   _confirmDelete(seed) {

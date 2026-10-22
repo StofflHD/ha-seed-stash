@@ -191,8 +191,30 @@ class SeedStash:
     async def async_load(self) -> None:
         stored = await self._store.async_load() or {}
         self.seeds = {seed["id"]: seed for seed in stored.get("seeds", [])}
-        if self._strip_stored_generations():
+        # Beide Bereinigungen immer ausführen (kein Kurzschluss durch "or")
+        changed = self._strip_stored_generations()
+        changed = self._recover_received_from_notes() or changed
+        if changed:
             await self.async_save()
+
+    def _recover_received_from_notes(self) -> bool:
+        """Eingang übernehmen, den der Import vor 0.1.2 nicht erkannt hat.
+
+        Der Import hat ihn dann als Zeile „Eingang: …“ in die Anmerkung geschrieben.
+        """
+        changed = False
+        for seed in self.seeds.values():
+            if seed[FIELD_RECEIVED] or not seed[FIELD_NOTES]:
+                continue
+            lines = seed[FIELD_NOTES].split("\n")
+            for index, line in enumerate(lines):
+                if line.startswith("Eingang: ") and (parsed := parse_received(line[9:])):
+                    seed[FIELD_RECEIVED] = parsed
+                    del lines[index]
+                    seed[FIELD_NOTES] = "\n".join(lines) or None
+                    changed = True
+                    break
+        return changed
 
     def _strip_stored_generations(self) -> bool:
         """Generation aus Kürzeln entfernen, die vor 0.1.1 gespeichert wurden.
