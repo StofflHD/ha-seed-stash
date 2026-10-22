@@ -25,6 +25,26 @@
     connectedCallback() { this.innerHTML = '<span style="display:inline-block;width:40px;text-align:center;font-size:20px">☰</span>'; }
   });
 
+  // Wie in Home Assistant (Polyfill scoped-custom-element-registry): Namenszugriff auf
+  // form.elements geht, Durchlaufen bricht mit „Method not implemented“ ab
+  {
+    const original = Object.getOwnPropertyDescriptor(HTMLFormElement.prototype, "elements").get;
+    Object.defineProperty(HTMLFormElement.prototype, "elements", {
+      configurable: true,
+      get() {
+        const real = original.call(this);
+        const fail = () => { throw new Error("Method not implemented."); };
+        return new Proxy(real, {
+          get(target, prop) {
+            if (prop === Symbol.iterator || prop === "length" || prop === "item") return fail();
+            const value = Reflect.get(target, prop, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      },
+    });
+  }
+
   const params = new URLSearchParams(location.search);
   if (params.get("theme") === "dark") document.body.classList.add("dark");
   const lang = params.get("lang") || "de";

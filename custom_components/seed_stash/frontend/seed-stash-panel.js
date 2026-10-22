@@ -361,6 +361,19 @@ class SeedStashPanel extends HTMLElement {
     );
   }
 
+  /**
+   * Formularfelder per Selektor statt über form.elements: Home Assistant lädt einen
+   * Polyfill (scoped-custom-element-registry), unter dem das Durchlaufen von
+   * form.elements mit „Method not implemented“ abbricht.
+   */
+  _field(form, name) {
+    return form.querySelector(`[name="${name}"]`);
+  }
+
+  _fields(form) {
+    return [...form.querySelectorAll("input[name], select[name], textarea[name]")];
+  }
+
   _navigate(path) {
     history.pushState(null, "", path);
     window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
@@ -673,7 +686,7 @@ class SeedStashPanel extends HTMLElement {
       .join("");
 
     const keep = info.querySelector("form");
-    const kind = keep?.elements.kind.value || "germinated";
+    const kind = (keep && this._field(keep, "kind").value) || "germinated";
     info.innerHTML = `
       <div class="stock">
         <div><div class="secondary small">${esc(this._t("stock"))}</div><div class="big">${seed.quantity}</div></div>
@@ -710,11 +723,11 @@ class SeedStashPanel extends HTMLElement {
     `;
     const form = info.querySelector("#qty-form");
     const updateLabel = () => {
-      const isCorrection = form.elements.kind.value === "correction";
+      const isCorrection = this._field(form, "kind").value === "correction";
       info.querySelector("#count-label").textContent = this._t(isCorrection ? "new_quantity" : "count");
-      if (isCorrection) form.elements.count.value = seed.quantity;
+      if (isCorrection) this._field(form, "count").value = seed.quantity;
     };
-    form.elements.kind.addEventListener("change", updateLabel);
+    this._field(form, "kind").addEventListener("change", updateLabel);
     updateLabel();
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
@@ -725,10 +738,10 @@ class SeedStashPanel extends HTMLElement {
         await this._hass.callWS({
           type: "seed_stash/change_quantity",
           seed_id: seed.id,
-          kind: form.elements.kind.value,
-          count: Number(form.elements.count.value),
-          date: form.elements.date.value || undefined,
-          note: form.elements.note.value || undefined,
+          kind: this._field(form, "kind").value,
+          count: Number(this._field(form, "count").value),
+          date: this._field(form, "date").value || undefined,
+          note: this._field(form, "note").value || undefined,
         });
         // Bei einer Änderung zeichnet das Live-Update das Formular neu, ohne Änderung
         // (z. B. Korrektur auf den aktuellen Wert) kommt keins
@@ -808,20 +821,19 @@ class SeedStashPanel extends HTMLElement {
     const status = form.querySelector("#edit-status");
     const button = form.querySelector("button[type=submit]");
     if (button.disabled) return;
-    // Ungültige Zahl (z. B. "56-63") liefert sonst einen leeren Wert und würde das Feld leeren
-    const bad = [...form.elements].find((el) => el.validity?.badInput);
-    if (bad) {
-      this._status(status, this._t("invalid_number", { field: this._t(bad.name) }), false);
-      bad.focus();
-      return;
-    }
     button.disabled = true;
     status.textContent = this._t("saving");
     status.className = "status";
     try {
+      // Ungültige Zahl (z. B. "56-63") liefert sonst einen leeren Wert und würde das Feld leeren
+      const bad = this._fields(form).find((el) => el.validity?.badInput);
+      if (bad) {
+        this._status(status, this._t("invalid_number", { field: this._t(bad.name) }), false);
+        bad.focus();
+        return;
+      }
       const data = {};
-      for (const el of form.elements) {
-        if (!el.name) continue;
+      for (const el of this._fields(form)) {
         if (el.type === "checkbox") data[el.name] = el.checked;
         else if (el.type === "number") data[el.name] = el.value === "" ? null : Number(el.value);
         else data[el.name] = String(el.value ?? "").trim() || null;
