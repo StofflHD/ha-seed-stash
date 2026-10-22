@@ -7,6 +7,7 @@ const SEED_TYPES = ["reg", "fem", "auto_reg", "auto_fem"];
 const GENOTYPES = ["indica", "indica_dominant", "hybrid", "sativa_dominant", "sativa"];
 const SOURCE_TYPES = ["shop", "trade", "own", "other"];
 const QUANTITY_KINDS = ["germinated", "removed", "added", "correction"];
+const LOG_KINDS = [...QUANTITY_KINDS, "import"];
 
 const TYPE_COLORS = {
   reg: "#43a047",
@@ -52,6 +53,13 @@ const I18N = {
     received: "Received",
     received_hint: "e.g. 2024-11, 11.2024 or 2018-2019",
     invalid_number: "“{field}” needs a whole number.",
+    edit_log: "Edit",
+    add_entry: "Add entry",
+    remove_entry: "Remove entry",
+    count_signed: "Change (+/−)",
+    log_hint: "For a correction, enter the change with a sign (e.g. −2). The stock is recalculated from the log.",
+    log_invalid: "Every entry needs a date (not in the future) and a whole number other than 0.",
+    log_conflict: "The log was changed in the meantime. Please cancel and edit again.",
     notes: "Notes",
     none: "–",
     save: "Save",
@@ -145,6 +153,13 @@ const I18N = {
     received: "Eingang",
     received_hint: "z. B. 2024-11, 11.2024 oder 2018-2019",
     invalid_number: "„{field}“ braucht eine ganze Zahl.",
+    edit_log: "Bearbeiten",
+    add_entry: "Eintrag hinzufügen",
+    remove_entry: "Eintrag entfernen",
+    count_signed: "Änderung (+/−)",
+    log_hint: "Bei einer Korrektur die Änderung mit Vorzeichen eintragen (z. B. −2). Der Bestand wird aus dem Protokoll neu berechnet.",
+    log_invalid: "Jeder Eintrag braucht ein Datum (nicht in der Zukunft) und eine ganze Zahl ungleich 0.",
+    log_conflict: "Das Protokoll wurde inzwischen geändert. Bitte abbrechen und neu bearbeiten.",
     notes: "Anmerkung",
     none: "–",
     save: "Speichern",
@@ -502,8 +517,9 @@ class SeedStashPanel extends HTMLElement {
     }
     if (!this._dialog) return;
     if (this._dialog.mode === "seed") {
-      if (this._seed(this._dialog.id)) this._renderSeedInfo();
-      else this._closeDialog();
+      // Während das Protokoll bearbeitet wird, nicht neu zeichnen (Eingaben bleiben erhalten)
+      if (!this._seed(this._dialog.id)) this._closeDialog();
+      else if (this._logEdit?.seedId !== this._dialog.id) this._renderSeedInfo();
     }
   }
 
@@ -637,6 +653,7 @@ class SeedStashPanel extends HTMLElement {
 
   _openDialog(dialog) {
     this._dialog = dialog;
+    this._logEdit = null;
     this.shadowRoot.getElementById("overlay").classList.remove("hidden");
     const info = this.shadowRoot.getElementById("dlg-info");
     const forms = this.shadowRoot.getElementById("dlg-forms");
@@ -661,6 +678,7 @@ class SeedStashPanel extends HTMLElement {
     this._dialog = null;
     this._import = null;
     this._pendingOpen = null;
+    this._logEdit = null;
     this.shadowRoot.getElementById("overlay").classList.add("hidden");
   }
 
@@ -669,21 +687,6 @@ class SeedStashPanel extends HTMLElement {
     const seed = this._seed(this._dialog.id);
     const info = this.shadowRoot.getElementById("dlg-info");
     this.shadowRoot.getElementById("dlg-title").textContent = `${seed.nr} · ${seed.name}`;
-
-    const log = [...seed.log]
-      .reverse()
-      .map(
-        (item) => `
-        <li>
-          <span>${esc(this._date(item.date))} · ${esc(this._t(`kinds.${item.kind}`))}${
-            item.note ? `<div class="secondary small">${esc(item.note)}</div>` : ""
-          }</span>
-          <span class="nowrap"><b class="${item.delta < 0 ? "minus" : "plus"}">${
-            item.delta > 0 ? "+" : ""
-          }${item.delta}</b> → ${item.quantity}</span>
-        </li>`
-      )
-      .join("");
 
     const keep = info.querySelector("form");
     const kind = (keep && this._field(keep, "kind").value) || "germinated";
@@ -715,12 +718,10 @@ class SeedStashPanel extends HTMLElement {
             <div class="status" id="qty-status"></div>
           </form>
         </div>
-        <div>
-          <h3>${esc(this._t("log"))}</h3>
-          ${log ? `<ul class="list log">${log}</ul>` : `<div class="secondary">${esc(this._t("log_empty"))}</div>`}
-        </div>
+        <div id="log-box"></div>
       </div>
     `;
+    this._renderLog(seed);
     const form = info.querySelector("#qty-form");
     const updateLabel = () => {
       const isCorrection = this._field(form, "kind").value === "correction";
@@ -751,6 +752,182 @@ class SeedStashPanel extends HTMLElement {
       }
       button.disabled = false;
     });
+  }
+
+  // --- Protokoll ------------------------------------------------------------------
+
+  /** Fingerabdruck des Protokolls, um zwischenzeitliche Änderungen zu erkennen. */
+  _logKey(seed) {
+    return seed.log.map((item) => `${item.id}:${item.date}:${item.kind}:${item.delta}:${item.note ?? ""}`).join("|");
+  }
+
+  /** Anzahl im Editor: bei fester Richtung ohne Vorzeichen, bei Korrektur mit. */
+  _logCount(kind, delta) {
+    return kind === "correction" ? delta : Math.abs(delta);
+  }
+
+  _logDelta(kind, count) {
+    if (kind === "germinated" || kind === "removed") return -Math.abs(count);
+    if (kind === "added" || kind === "import") return Math.abs(count);
+    return count;
+  }
+
+  _renderLog(seed) {
+    const box = this.shadowRoot.getElementById("log-box");
+    const edit = this._logEdit?.seedId === seed.id ? this._logEdit : null;
+    const head = `
+      <div class="section-head">
+        <h3>${esc(this._t("log"))}</h3>
+        ${edit ? "" : `<button class="text-button small-button" type="button" id="log-edit">${esc(this._t("edit_log"))}</button>`}
+      </div>`;
+
+    if (!edit) {
+      const items = [...seed.log]
+        .reverse()
+        .map(
+          (item) => `
+          <li>
+            <span>${esc(this._date(item.date))} · ${esc(this._t(`kinds.${item.kind}`))}${
+              item.note ? `<div class="secondary small">${esc(item.note)}</div>` : ""
+            }</span>
+            <span class="nowrap"><b class="${item.delta < 0 ? "minus" : "plus"}">${
+              item.delta > 0 ? "+" : ""
+            }${item.delta}</b> → ${item.quantity}</span>
+          </li>`
+        )
+        .join("");
+      box.innerHTML = `${head}${
+        items ? `<ul class="list log">${items}</ul>` : `<div class="secondary">${esc(this._t("log_empty"))}</div>`
+      }`;
+      box.querySelector("#log-edit").addEventListener("click", () => {
+        this._logEdit = {
+          seedId: seed.id,
+          base: this._logKey(seed),
+          rows: seed.log.map((item) => ({
+            id: item.id,
+            date: item.date,
+            kind: item.kind,
+            count: this._logCount(item.kind, item.delta),
+            note: item.note || "",
+          })),
+        };
+        this._renderLog(seed);
+      });
+      return;
+    }
+
+    const today = this._data.today;
+    const rows = edit.rows
+      .map(
+        (row, i) => `
+        <div class="edit-row log-row" data-row="${i}">
+          <input type="date" data-field="date" value="${esc(row.date)}" max="${esc(today)}" aria-label="${esc(this._t("date"))}" />
+          <select data-field="kind" aria-label="${esc(this._t("kind"))}">${LOG_KINDS.map(
+            (k) => `<option value="${k}" ${k === row.kind ? "selected" : ""}>${esc(this._t(`kinds.${k}`))}</option>`
+          ).join("")}</select>
+          <input type="number" step="1" data-field="count" value="${esc(row.count)}" ${
+            row.kind === "correction" ? "" : 'min="1"'
+          } title="${esc(this._t(row.kind === "correction" ? "count_signed" : "count"))}" aria-label="${esc(this._t("count"))}" />
+          <input type="text" data-field="note" value="${esc(row.note)}" maxlength="500" placeholder="${esc(this._t("note"))}" />
+          <button class="icon-button small-icon" type="button" data-remove="${i}" aria-label="${esc(this._t("remove_entry"))}">✕</button>
+        </div>`
+      )
+      .join("");
+    box.innerHTML = `${head}
+      <div class="log-editor">
+        <div class="edit-row log-row edit-labels secondary small">
+          <span>${esc(this._t("date"))}</span><span>${esc(this._t("kind"))}</span>
+          <span>${esc(this._t("count"))}</span><span>${esc(this._t("note"))}</span><span></span>
+        </div>
+        ${rows || `<div class="secondary">${esc(this._t("log_empty"))}</div>`}
+        <button class="text-button small-button" type="button" id="log-add">+ ${esc(this._t("add_entry"))}</button>
+        <p class="secondary small">${esc(this._t("log_hint"))}</p>
+        <div class="note-buttons">
+          <button class="primary" type="button" id="log-save">${esc(this._t("save"))}</button>
+          <button class="text-button" type="button" id="log-cancel">${esc(this._t("cancel"))}</button>
+        </div>
+        <div class="status" id="log-status"></div>
+      </div>`;
+
+    // Eingaben direkt in den Bearbeitungsstand übernehmen (überlebt Neuzeichnen)
+    const editor = box.querySelector(".log-editor");
+    const sync = (ev) => {
+      const rowEl = ev.target.closest("[data-row]");
+      const field = ev.target.dataset.field;
+      if (!rowEl || !field) return;
+      const row = edit.rows[Number(rowEl.dataset.row)];
+      if (field === "kind") {
+        if (ev.target.value === row.kind) return;
+        // Bisherige Änderung (mit Vorzeichen der alten Art) für die neue Art umrechnen
+        const delta = row.count === "" ? "" : this._logDelta(row.kind, row.count);
+        row.kind = ev.target.value;
+        if (delta !== "") row.count = this._logCount(row.kind, delta);
+        this._renderLog(seed);
+      } else if (field === "count") {
+        row.count = ev.target.value === "" ? "" : Number(ev.target.value);
+      } else {
+        row[field] = ev.target.value;
+      }
+    };
+    editor.addEventListener("input", sync);
+    editor.addEventListener("change", sync);
+    editor.addEventListener("click", (ev) => {
+      const remove = ev.target.closest("[data-remove]");
+      if (!remove) return;
+      edit.rows.splice(Number(remove.dataset.remove), 1);
+      this._renderLog(seed);
+    });
+    box.querySelector("#log-add").addEventListener("click", () => {
+      edit.rows.push({ id: null, date: today, kind: "germinated", count: 1, note: "" });
+      this._renderLog(seed);
+    });
+    box.querySelector("#log-cancel").addEventListener("click", () => {
+      this._logEdit = null;
+      this._renderSeedInfo();
+    });
+    box.querySelector("#log-save").addEventListener("click", () => this._saveLog(seed, edit));
+  }
+
+  async _saveLog(seed, edit) {
+    const status = this.shadowRoot.getElementById("log-status");
+    const button = this.shadowRoot.getElementById("log-save");
+    if (button.disabled) return;
+    button.disabled = true;
+    status.textContent = this._t("saving");
+    status.className = "status";
+    try {
+      const today = this._data.today;
+      const invalid = edit.rows.some(
+        (row) => !row.date || row.date > today || row.count === "" || !Number.isInteger(row.count) || row.count === 0
+      );
+      if (invalid) {
+        this._status(status, this._t("log_invalid"), false);
+        return;
+      }
+      const current = this._seed(seed.id);
+      if (!current || this._logKey(current) !== edit.base) {
+        this._status(status, this._t("log_conflict"), false);
+        return;
+      }
+      await this._hass.callWS({
+        type: "seed_stash/set_log",
+        seed_id: seed.id,
+        log: edit.rows.map((row) => ({
+          id: row.id,
+          date: row.date,
+          kind: row.kind,
+          delta: this._logDelta(row.kind, row.count),
+          note: row.note.trim() || null,
+        })),
+      });
+      this._logEdit = null;
+      if (this._dialog?.mode === "seed" && this._seed(seed.id)) this._renderSeedInfo();
+    } catch (err) {
+      console.error("Seed Stash: Protokoll speichern fehlgeschlagen", err);
+      this._status(status, err?.message || String(err), false);
+    } finally {
+      button.disabled = false;
+    }
   }
 
   _renderEditForm(seed) {
@@ -1180,6 +1357,20 @@ const STYLES = `
     font-size: 14px;
   }
   .log { max-height: 260px; overflow-y: auto; }
+  .section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .section-head h3 { margin-bottom: 8px; }
+  .dialog .small-button { padding: 4px 8px; font-size: 12px; color: var(--primary-color); }
+  .log-editor { display: flex; flex-direction: column; gap: 6px; }
+  .log-editor .small-button { align-self: flex-start; }
+  .log-editor p { margin: 4px 0; }
+  .edit-row { display: grid; gap: 6px; align-items: center; }
+  .log-row { grid-template-columns: minmax(120px, 1.2fr) minmax(110px, 1.2fr) minmax(64px, 0.6fr) minmax(80px, 1.5fr) 32px; }
+  .log-row input, .log-row select { width: 100%; min-width: 0; padding: 6px; }
+  .edit-labels { margin-bottom: -2px; }
+  .dialog .small-icon { width: 32px; height: 32px; font-size: 14px; }
+  .note-buttons { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  /* Beim Bearbeiten nutzt das Protokoll die volle Breite */
+  .columns > #log-box:has(.log-editor) { grid-column: 1 / -1; }
   .plus { color: var(--success-color, #43a047); }
   .minus { color: var(--error-color, #db4437); }
   .errors { margin: 0; padding-left: 20px; color: var(--error-color, #db4437); font-size: 14px; }
@@ -1257,6 +1448,14 @@ const STYLES = `
     .overlay { padding: 0; }
     .dialog { border-radius: 0; max-height: 100vh; height: 100vh; }
     .dialog-body { padding: 12px 16px 24px; }
+    .log-row { grid-template-columns: 1fr 1fr 32px; grid-template-areas: "date kind remove" "count note note"; }
+    .log-row [data-field="date"] { grid-area: date; }
+    .log-row [data-field="kind"] { grid-area: kind; }
+    .log-row [data-field="count"] { grid-area: count; }
+    .log-row [data-field="note"] { grid-area: note; }
+    .log-row [data-remove] { grid-area: remove; }
+    .log-row:not(.edit-labels) { padding-bottom: 6px; border-bottom: 1px solid var(--divider-color); }
+    .log-row.edit-labels { display: none; }
   }
 `;
 

@@ -168,6 +168,39 @@ async def test_ws_subscribe_and_edit(
     assert len(event["seeds"]) == 3
 
 
+async def test_ws_set_log(
+    hass: HomeAssistant, stash: SeedStash, hass_ws_client: WebSocketGenerator
+) -> None:
+    assert await async_setup_component(hass, "websocket_api", {})
+    client = await hass_ws_client(hass)
+    seed = stash.resolve("LA")
+
+    await client.send_json_auto_id(
+        {
+            "type": "seed_stash/set_log",
+            "seed_id": seed["id"],
+            "log": [
+                {"id": seed["log"][0]["id"], "date": "2026-09-01", "kind": "added", "delta": 6},
+                {"date": "2026-09-10", "kind": "germinated", "delta": -2, "note": "Keimtest"},
+            ],
+        }
+    )
+    assert (await client.receive_json())["success"]
+    assert seed["quantity"] == 4
+
+    await client.send_json_auto_id(
+        {
+            "type": "seed_stash/set_log",
+            "seed_id": seed["id"],
+            "log": [{"date": "2026-09-01", "kind": "germinated", "delta": -1}],
+        }
+    )
+    result = await client.receive_json()
+    assert not result["success"]
+    assert "negativ" in result["error"]["message"]
+    assert seed["quantity"] == 4
+
+
 async def test_ws_import_and_export(
     hass: HomeAssistant, stash: SeedStash, hass_ws_client: WebSocketGenerator
 ) -> None:

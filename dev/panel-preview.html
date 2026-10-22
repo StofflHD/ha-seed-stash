@@ -119,6 +119,19 @@
         push();
         return null;
       }
+      if (msg.type === "seed_stash/set_log") {
+        const s = data.seeds.find((x) => x.id === msg.seed_id);
+        const start = s.quantity - s.log.reduce((sum, i) => sum + i.delta, 0);
+        const log = msg.log
+          .map((e, i) => ({ id: e.id || `${s.id}_n${Date.now()}_${i}`, date: e.date, kind: e.kind, delta: e.delta, note: e.note || null }))
+          .sort((a, b) => a.date.localeCompare(b.date));
+        let running = start;
+        for (const item of log) { running += item.delta; item.quantity = running; }
+        if (running < 0) throw new Error(`Der Bestand wäre am Ende negativ (${running})`);
+        s.log = log; s.quantity = running;
+        push();
+        return null;
+      }
       if (msg.type === "seed_stash/delete_seed") {
         data.seeds = data.seeds.filter((s) => s.id !== msg.seed_id);
         push();

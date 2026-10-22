@@ -17,6 +17,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     DATA_HUB,
     LOG_KINDS,
+    MAX_LOG,
     SIGNAL_UPDATE,
     WS_CHANGE_QUANTITY,
     WS_DELETE_SEED,
@@ -24,6 +25,7 @@ from .const import (
     WS_IMPORT,
     WS_IMPORT_PREVIEW,
     WS_SAVE_SEED,
+    WS_SET_LOG,
     WS_SUBSCRIBE,
 )
 from .csv_io import export_csv, parse_csv
@@ -39,6 +41,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_save_seed)
     websocket_api.async_register_command(hass, ws_delete_seed)
     websocket_api.async_register_command(hass, ws_change_quantity)
+    websocket_api.async_register_command(hass, ws_set_log)
     websocket_api.async_register_command(hass, ws_import_preview)
     websocket_api.async_register_command(hass, ws_import)
     websocket_api.async_register_command(hass, ws_export)
@@ -114,6 +117,38 @@ async def ws_change_quantity(
         await stash.async_change_quantity(
             msg["seed_id"], msg["kind"], msg["count"], msg.get("date"), msg.get("note")
         )
+
+    await _async_run(hass, connection, msg, action)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): WS_SET_LOG,
+        vol.Required("seed_id"): str,
+        vol.Required("log"): vol.All(
+            [
+                {
+                    vol.Optional("id"): vol.Any(None, str),
+                    vol.Required("date"): cv.date,
+                    vol.Required("kind"): vol.In(LOG_KINDS),
+                    vol.Required("delta"): vol.All(
+                        vol.Coerce(int), vol.Range(min=-100000, max=100000)
+                    ),
+                    vol.Optional("note"): vol.Any(None, str),
+                }
+            ],
+            vol.Length(max=MAX_LOG),
+        ),
+    }
+)
+@websocket_api.async_response
+async def ws_set_log(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Bestandsprotokoll eines Eintrags ersetzen (Bestand wird neu berechnet)."""
+
+    async def action(stash: SeedStash) -> None:
+        await stash.async_set_log(msg["seed_id"], msg["log"])
 
     await _async_run(hass, connection, msg, action)
 

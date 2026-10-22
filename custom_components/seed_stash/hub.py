@@ -43,6 +43,7 @@ from .const import (
     LOG_CORRECTION,
     LOG_GERMINATED,
     LOG_IMPORT,
+    LOG_KINDS,
     LOG_REMOVED,
     MAX_LOG,
     SEED_TYPES,
@@ -316,9 +317,29 @@ class SeedStash:
     # --- Ändern -----------------------------------------------------------
 
     @staticmethod
+    def _recompute_log(seed: dict[str, Any], start: int) -> int:
+        """Protokoll nach Datum sortieren, laufenden Bestand neu berechnen, Endbestand liefern.
+
+        start ist der Bestand vor dem ersten Eintrag (normalerweise 0; anders nur, wenn
+        alte Einträge wegen MAX_LOG weggefallen sind).
+        """
+        seed["log"].sort(key=lambda item: item["date"])
+        running = start
+        for item in seed["log"]:
+            running += item["delta"]
+            item["quantity"] = running
+        return running
+
+    @staticmethod
+    def _log_start(seed: dict[str, Any]) -> int:
+        return seed[FIELD_QUANTITY] - sum(item["delta"] for item in seed["log"])
+
+    @classmethod
     def _log(
-        seed: dict[str, Any], kind: str, delta: int, day: date, note: str | None = None
+        cls, seed: dict[str, Any], kind: str, delta: int, day: date, note: str | None = None
     ) -> None:
+        """Eintrag anhängen; seed[quantity] enthält schon den neuen Bestand."""
+        start = cls._log_start(seed) - delta
         seed["log"].append(
             {
                 "id": uuid4().hex,
@@ -329,8 +350,12 @@ class SeedStash:
                 "note": note,
             }
         )
-        seed["log"].sort(key=lambda item: item["date"])
-        del seed["log"][:-MAX_LOG]
+        cls._recompute_log(seed, start)
+        if len(seed["log"]) > MAX_LOG:
+            dropped = seed["log"][:-MAX_LOG]
+            del seed["log"][:-MAX_LOG]
+            start += sum(item["delta"] for item in dropped)
+            cls._recompute_log(seed, start)
 
     def _new_seed(self, data: dict[str, Any], log_kind: str) -> dict[str, Any]:
         seed = validate_seed(data)
@@ -416,6 +441,49 @@ class SeedStash:
                 "quantity": new,
             },
         )
+        return seed
+
+    async def async_set_log(self, seed_id: str, entries: list[dict[str, Any]]) -> dict[str, Any]:
+        """Protokoll eines Eintrags ersetzen und den Bestand daraus neu berechnen.
+
+        entries: {"id"?, "date": date, "kind", "delta", "note"?}. Hinzufügen und Import
+        brauchen ein positives, Keimen und Abgeben ein negatives delta, eine Korrektur
+        darf beides. Nur der Endbestand muss mindestens 0 sein: Nachgetragene ältere
+        Entnahmen (z. B. vor dem Importdatum) dürfen zwischendurch ins Minus rechnen.
+        """
+        seed = self.get(seed_id)
+        today = dt_util.now().date()
+        start = self._log_start(seed)
+        log: list[dict[str, Any]] = []
+        for entry in entries:
+            day, kind, delta = entry["date"], entry["kind"], int(entry["delta"])
+            if day > today:
+                raise ServiceValidationError("Das Datum darf nicht in der Zukunft liegen")
+            if kind not in LOG_KINDS:
+                raise ServiceValidationError(f"Unbekannte Art: {kind}")
+            if delta == 0:
+                raise ServiceValidationError("Jeder Eintrag braucht eine Anzahl")
+            if (kind in (LOG_ADDED, LOG_IMPORT) and delta < 0) or (
+                kind in (LOG_GERMINATED, LOG_REMOVED) and delta > 0
+            ):
+                raise ServiceValidationError("Anzahl und Art passen nicht zusammen")
+            log.append(
+                {
+                    "id": entry.get("id") or uuid4().hex,
+                    "date": day.isoformat(),
+                    "kind": kind,
+                    "delta": delta,
+                    "quantity": 0,
+                    "note": _text(500)(entry.get("note")),
+                }
+            )
+
+        final = self._recompute_log({"log": log}, start)
+        if final < 0:
+            raise ServiceValidationError(f"Der Bestand wäre am Ende negativ ({final})")
+        seed["log"] = log
+        seed[FIELD_QUANTITY] = final
+        await self.async_save_and_notify()
         return seed
 
     async def async_import(self, entries: list[dict[str, Any]], replace: bool) -> int:

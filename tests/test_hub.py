@@ -279,3 +279,73 @@ async def test_load_recovers_received_from_notes(
     # Nicht erkannt oder schon gesetzt: unverändert
     assert (seeds["s3"]["received"], seeds["s3"]["notes"]) == (None, "Eingang: irgendwann")
     assert (seeds["s4"]["received"], seeds["s4"]["notes"]) == ("2024-05", "Eingang: 11 2024")
+
+
+async def test_backdated_entry_recomputes_running_quantity(stash: SeedStash) -> None:
+    seed = stash.resolve("BC")  # +15 am 15.09.
+    await stash.async_change_quantity(seed["id"], "germinated", 3, date(2026, 9, 10))
+    # Nachgetragener Eintrag steht vorne, alle laufenden Bestände stimmen
+    assert [(i["date"], i["delta"], i["quantity"]) for i in seed["log"]] == [
+        ("2026-09-10", -3, -3),
+        ("2026-09-15", 15, 12),
+    ]
+    assert seed["quantity"] == 12
+
+
+async def test_set_log_recomputes_quantity(hass: HomeAssistant, stash: SeedStash) -> None:
+    seed = stash.resolve("BC")
+    first = seed["log"][0]["id"]
+    await stash.async_set_log(
+        seed["id"],
+        [
+            {
+                "id": first,
+                "date": date(2026, 9, 1),
+                "kind": "import",
+                "delta": 20,
+                "note": "Korrigiert",
+            },
+            {"date": date(2026, 9, 12), "kind": "germinated", "delta": -4, "note": " Test "},
+            {"date": date(2026, 9, 5), "kind": "correction", "delta": -1},
+        ],
+    )
+    assert seed["quantity"] == 15
+    assert [(i["date"], i["kind"], i["delta"], i["quantity"]) for i in seed["log"]] == [
+        ("2026-09-01", "import", 20, 20),
+        ("2026-09-05", "correction", -1, 19),
+        ("2026-09-12", "germinated", -4, 15),
+    ]
+    assert seed["log"][0]["id"] == first
+    assert seed["log"][0]["note"] == "Korrigiert"
+    assert seed["log"][2]["note"] == "Test"
+    await hass.async_block_till_done()
+    assert stash.total == 22
+
+    # Leeres Protokoll: Bestand 0
+    await stash.async_set_log(seed["id"], [])
+    assert (seed["quantity"], seed["log"]) == (0, [])
+
+
+@pytest.mark.parametrize(
+    ("entries", "message"),
+    [
+        ([{"date": date(2026, 9, 16), "kind": "added", "delta": 1}], "Zukunft"),
+        ([{"date": date(2026, 9, 1), "kind": "added", "delta": 0}], "Anzahl"),
+        ([{"date": date(2026, 9, 1), "kind": "germinated", "delta": 2}], "passen nicht"),
+        ([{"date": date(2026, 9, 1), "kind": "added", "delta": -2}], "passen nicht"),
+        (
+            [
+                {"date": date(2026, 9, 1), "kind": "added", "delta": 2},
+                {"date": date(2026, 9, 2), "kind": "germinated", "delta": -3},
+            ],
+            "am Ende negativ",
+        ),
+    ],
+)
+async def test_set_log_rejects(stash: SeedStash, entries: list, message: str) -> None:
+    seed = stash.resolve("BC")
+    before = [dict(item) for item in seed["log"]]
+    with pytest.raises(ServiceValidationError, match=message):
+        await stash.async_set_log(seed["id"], entries)
+    assert seed["log"] == before
+    assert seed["quantity"] == 15

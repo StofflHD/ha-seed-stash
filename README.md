@@ -7,7 +7,7 @@ Keep track of your seed stash in Home Assistant – strains, stock and every see
 ## Features
 
 - **Sidebar panel** – sortable table with search and filters (type, genotype, breeder), entry details and editing
-- **Stock log** – germinated, given away, added or corrected, each with date and note
+- **Stock log** – germinated, given away, added or corrected, each with date and note; entries can be edited, removed or added later, the stock is recalculated
 - **CSV import** – bring over your existing spreadsheet (Excel “Save as CSV”); breeder/source, flowering days and dates are recognised automatically, with a preview before anything is saved
 - **CSV export** – back to Excel at any time
 - **Entities** – total seeds, strains in stock, low stock and old seeds for dashboards and automations
