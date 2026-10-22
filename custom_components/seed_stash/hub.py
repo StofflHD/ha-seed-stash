@@ -54,6 +54,15 @@ from .const import (
 
 # Jahr-Monat, nur Jahr oder Zeitraum zweier Jahre
 RECEIVED_RE = re.compile(r"^\d{4}(-(0[1-9]|1[0-2]))?$|^\d{4}-\d{4}$")
+# Generation am Ende eines Kürzels (C99F2, XD-F3, PB_S1, AB BX2, CD IBL)
+GENERATION_RE = re.compile(r"^(.+?)[-_ ]?(F\d{1,2}|S\d|BX\d?|IBL)$", re.IGNORECASE)
+
+
+def strip_generation(code: str | None) -> str | None:
+    """Die Generation gehört in die Sorte, nicht ins Kürzel."""
+    if code and (match := GENERATION_RE.match(code)):
+        return match[1]
+    return code
 
 
 def _text(max_len: int) -> Callable[[Any], str | None]:
@@ -112,6 +121,7 @@ def validate_seed(data: dict[str, Any]) -> dict[str, Any]:
         raise ServiceValidationError(f"Ungültige Angabe: {err}") from err
     for key in SEED_FIELDS:
         seed.setdefault(key, None)
+    seed[FIELD_CODE] = strip_generation(seed[FIELD_CODE])
 
     low, high = seed[FIELD_FLOWER_MIN], seed[FIELD_FLOWER_MAX]
     if low is None or high is None:
@@ -140,6 +150,24 @@ class SeedStash:
     async def async_load(self) -> None:
         stored = await self._store.async_load() or {}
         self.seeds = {seed["id"]: seed for seed in stored.get("seeds", [])}
+        if self._strip_stored_generations():
+            await self.async_save()
+
+    def _strip_stored_generations(self) -> bool:
+        """Generation aus Kürzeln entfernen, die vor 0.1.1 gespeichert wurden.
+
+        Ein Kürzel bleibt unverändert, wenn das gekürzte schon vergeben ist.
+        """
+        changed = False
+        for seed in self.seeds.values():
+            code = strip_generation(seed[FIELD_CODE])
+            if code == seed[FIELD_CODE]:
+                continue
+            taken = {(s[FIELD_CODE] or "").casefold() for s in self.seeds.values() if s is not seed}
+            if code.casefold() not in taken:
+                seed[FIELD_CODE] = code
+                changed = True
+        return changed
 
     async def async_save(self) -> None:
         await self._store.async_save({"seeds": list(self.seeds.values())})

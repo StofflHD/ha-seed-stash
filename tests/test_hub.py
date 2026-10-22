@@ -178,3 +178,50 @@ async def test_import_replace_and_rollback(stash: SeedStash) -> None:
     with pytest.raises(ServiceValidationError):
         await stash.async_import([{"name": "Gut"}, {"name": ""}], replace=True)
     assert [s["name"] for s in stash.seeds.values()] == ["Einzig"]
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        ("C99F2", "C99"),
+        ("XD-F3", "XD"),
+        ("PB_S1", "PB"),
+        ("AB BX2", "AB"),
+        ("CD IBL", "CD"),
+        ("sm f10", "sm"),
+        # Kein Generationszusatz
+        ("S60", "S60"),
+        ("S#1", "S#1"),
+        ("AK47", "AK47"),
+        ("UES-OG", "UES-OG"),
+        ("F2", "F2"),
+    ],
+)
+def test_validate_strips_generation_from_code(code: str, expected: str) -> None:
+    assert validate_seed({"name": "X", "code": code})["code"] == expected
+
+
+async def test_load_strips_stored_generations(
+    hass: HomeAssistant, hass_storage: dict, mock_entry: MockConfigEntry
+) -> None:
+    def stored(nr: int, code: str) -> dict:
+        return {
+            **validate_seed({"name": f"Sorte {nr}", "nr": nr}),
+            "id": f"s{nr}",
+            "code": code,
+            "log": [],
+        }
+
+    hass_storage["seed_stash"] = {
+        "version": 1,
+        "key": "seed_stash",
+        "data": {"seeds": [stored(1, "C99F2"), stored(2, "XD"), stored(3, "XD-F3")]},
+    }
+    mock_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_entry.entry_id)
+    await hass.async_block_till_done()
+
+    stash: SeedStash = mock_entry.runtime_data
+    # XD ist schon vergeben, deshalb bleibt XD-F3 stehen
+    assert [stash.seeds[f"s{nr}"]["code"] for nr in (1, 2, 3)] == ["C99", "XD", "XD-F3"]
+    assert hass_storage["seed_stash"]["data"]["seeds"][0]["code"] == "C99"

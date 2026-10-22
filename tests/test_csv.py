@@ -25,7 +25,7 @@ Nr.;Sorte;Kreuzung;Züchter;Art;Kürzel;Genotyp;Blütetage;Menge;Eingang;Anmerku
 5;Dank F5;G13 x OG;Tauschpartner (Forum) / Bodhi Seeds;Reg;DF;Indica;;12;Jan 25;
 6;Ohne Menge;;Beispiel Seeds;Reg;OM;100% Sativa;56;;Feb. 2025;
 7;Komisch;;Beispiel Seeds;Superfem;KO;Mostly Indica;irgendwann;3;letztes Jahr;
-8;Doppelt;;Beispiel Seeds;Reg;BC;Hybrid;9 Wochen;1;2025;
+8;Doppelt;;Beispiel Seeds;Reg;BCF2;Hybrid;9 Wochen;1;2025;
 ;Gesamtmenge;46;;;;;;;;
 """
 
