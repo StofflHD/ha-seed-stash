@@ -51,6 +51,7 @@ from .const import (
     STORAGE_KEY,
     STORAGE_VERSION,
 )
+from .formats import parse_received
 
 # Jahr-Monat, nur Jahr oder Zeitraum zweier Jahre
 RECEIVED_RE = re.compile(r"^\d{4}(-(0[1-9]|1[0-2]))?$|^\d{4}-\d{4}$")
@@ -84,6 +85,36 @@ def _optional(validator: Any) -> Any:
     return vol.Any(None, vol.All("", lambda _: None), validator)
 
 
+def _received(value: Any) -> str | None:
+    """Eingang wie beim Import auch als 03.2025, Mär 25 usw. annehmen."""
+    text = str(value).strip() if value is not None else ""
+    if not text or RECEIVED_RE.match(text):
+        return text or None
+    if (parsed := parse_received(text)) is None:
+        raise vol.Invalid("nicht erkannt – z. B. 2024-11, 11.2024 oder 2018-2019")
+    return parsed
+
+
+# Feldnamen für Fehlermeldungen
+FIELD_LABELS = {
+    FIELD_NR: "Nr.",
+    FIELD_NAME: "Sorte",
+    FIELD_LINEAGE: "Kreuzung",
+    FIELD_BREEDER: "Züchter",
+    FIELD_SOURCE: "Quelle",
+    FIELD_SOURCE_TYPE: "Quellentyp",
+    FIELD_TYPE: "Art",
+    FIELD_CODE: "Kürzel",
+    FIELD_GENOTYPE: "Genotyp",
+    FIELD_FLOWER_MIN: "Blütetage von",
+    FIELD_FLOWER_MAX: "Blütetage bis",
+    FIELD_TOTAL_RUNTIME: "Gesamtlaufzeit",
+    FIELD_QUANTITY: "Menge",
+    FIELD_RECEIVED: "Eingang",
+    FIELD_NOTES: "Anmerkung",
+}
+
+
 SEED_SCHEMA = vol.Schema(
     {
         vol.Optional(FIELD_NR): _optional(vol.All(vol.Coerce(int), vol.Range(min=1, max=99999))),
@@ -105,7 +136,7 @@ SEED_SCHEMA = vol.Schema(
         vol.Optional(FIELD_QUANTITY, default=0): vol.All(
             vol.Coerce(int), vol.Range(min=0, max=100000)
         ),
-        vol.Optional(FIELD_RECEIVED): _optional(vol.All(_text(9), vol.Match(RECEIVED_RE))),
+        vol.Optional(FIELD_RECEIVED): _received,
         vol.Optional(FIELD_NOTES): _text(5000),
     }
 )
@@ -118,7 +149,17 @@ def validate_seed(data: dict[str, Any]) -> dict[str, Any]:
     try:
         seed = SEED_SCHEMA(data)
     except vol.Invalid as err:
-        raise ServiceValidationError(f"Ungültige Angabe: {err}") from err
+        field = str(err.path[0]) if err.path else ""
+        if field == FIELD_NAME:
+            raise ServiceValidationError("Bitte eine Sorte angeben") from err
+        label = FIELD_LABELS.get(field, field)
+        # Eigene Meldungen sind deutsch und werden mit angezeigt
+        detail = (
+            err.error_message if field == FIELD_RECEIVED or "Zeichen" in err.error_message else ""
+        )
+        raise ServiceValidationError(
+            f"Ungültige Angabe bei „{label}“" + (f": {detail}" if detail else "")
+        ) from err
     for key in SEED_FIELDS:
         seed.setdefault(key, None)
     seed[FIELD_CODE] = strip_generation(seed[FIELD_CODE])

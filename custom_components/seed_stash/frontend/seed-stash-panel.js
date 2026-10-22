@@ -50,7 +50,8 @@ const I18N = {
     total_short: "total",
     quantity: "Quantity",
     received: "Received",
-    received_hint: "YYYY-MM, YYYY or YYYY-YYYY",
+    received_hint: "e.g. 2024-11, 11.2024 or 2018-2019",
+    invalid_number: "“{field}” needs a whole number.",
     notes: "Notes",
     none: "–",
     save: "Save",
@@ -141,7 +142,8 @@ const I18N = {
     total_short: "gesamt",
     quantity: "Menge",
     received: "Eingang",
-    received_hint: "JJJJ-MM, JJJJ oder JJJJ-JJJJ",
+    received_hint: "z. B. 2024-11, 11.2024 oder 2018-2019",
+    invalid_number: "„{field}“ braucht eine ganze Zahl.",
     notes: "Anmerkung",
     none: "–",
     save: "Speichern",
@@ -679,7 +681,7 @@ class SeedStashPanel extends HTMLElement {
       <div class="columns">
         <div>
           <h3>${esc(this._t("change_stock"))}</h3>
-          <form id="qty-form">
+          <form id="qty-form" novalidate>
             <div class="row">
               <label>${esc(this._t("kind"))}
                 <select name="kind">${QUANTITY_KINDS.map(
@@ -726,10 +728,13 @@ class SeedStashPanel extends HTMLElement {
           date: form.elements.date.value || undefined,
           note: form.elements.note.value || undefined,
         });
+        // Bei einer Änderung zeichnet das Live-Update das Formular neu, ohne Änderung
+        // (z. B. Korrektur auf den aktuellen Wert) kommt keins
+        status.textContent = "";
       } catch (err) {
         this._status(status, err?.message || String(err), false);
-        button.disabled = false;
       }
+      button.disabled = false;
     });
   }
 
@@ -744,7 +749,7 @@ class SeedStashPanel extends HTMLElement {
       `<label>${esc(this._t(key))}<select name="${key}">${this._options(values, prefix, seed?.[key] ?? "", this._t("none"))}</select></label>`;
 
     forms.innerHTML = `
-      <form id="edit-form" class="${seed ? "edit" : ""}">
+      <form id="edit-form" class="${seed ? "edit" : ""}" novalidate>
         ${seed ? `<h3>${esc(this._t("edit"))}</h3>` : ""}
         <div class="row">
           ${number("nr", `min="1" placeholder="${esc(this._t("auto_nr"))}"`)}
@@ -770,7 +775,7 @@ class SeedStashPanel extends HTMLElement {
         </div>
         <div class="row">
           ${seed ? "" : number("quantity", 'value="0"')}
-          ${text("received", `placeholder="${esc(this._t("received_hint"))}" pattern="\\d{4}(-(0[1-9]|1[0-2]))?|\\d{4}-\\d{4}"`)}
+          ${text("received", `placeholder="${esc(this._t("received_hint"))}"`)}
         </div>
         <label>${esc(this._t("notes"))}<textarea name="notes" rows="3" maxlength="5000">${v("notes")}</textarea></label>
         <div class="footer">
@@ -791,6 +796,13 @@ class SeedStashPanel extends HTMLElement {
 
   async _saveSeed(form, seed) {
     const status = form.querySelector("#edit-status");
+    // Ungültige Zahl (z. B. "56-63") liefert sonst einen leeren Wert und würde das Feld leeren
+    const bad = [...form.elements].find((el) => el.validity?.badInput);
+    if (bad) {
+      this._status(status, this._t("invalid_number", { field: this._t(bad.name) }), false);
+      bad.focus();
+      return;
+    }
     const data = {};
     for (const el of form.elements) {
       if (!el.name) continue;

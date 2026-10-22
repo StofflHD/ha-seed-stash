@@ -30,6 +30,7 @@ from .const import (
     SOURCE_TYPE_SHOP,
     SOURCE_TYPE_TRADE,
 )
+from .formats import norm as _norm, parse_received
 from .hub import validate_seed
 
 # Spaltenköpfe (normalisiert) → Feld. Flower steht für beide Blütetage-Felder.
@@ -90,12 +91,6 @@ _SOURCE_TYPES = {
     "other": SOURCE_TYPE_OTHER,
 }
 
-_MONTHS = {
-    "jan": 1, "feb": 2, "mar": 3, "mrz": 3, "maer": 3, "apr": 4, "mai": 5, "may": 5,
-    "jun": 6, "jul": 7, "aug": 8, "sep": 9, "okt": 10, "oct": 10, "nov": 11, "dez": 12,
-    "dec": 12,
-}  # fmt: skip
-
 # Kennzeichnet Züchter-Angaben, die getauscht/geschenkt wurden: "Name (Forum)"
 _TRADE_RE = re.compile(r"^(.*?)\s*\((forum|tausch|trade)\)$", re.IGNORECASE)
 _SUM_WORDS = ("gesamt", "summe", "total")
@@ -125,14 +120,6 @@ class _ExcelSemicolon(csv.excel):
     """Standard von Excel mit deutscher Ländereinstellung."""
 
     delimiter = ";"
-
-
-def _norm(value: str) -> str:
-    """Vergleichsschlüssel: klein, Umlaute ausgeschrieben, nur Buchstaben/Ziffern."""
-    value = value.casefold()
-    for old, new in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss")):
-        value = value.replace(old, new)
-    return re.sub(r"[^a-z0-9]", "", value)
 
 
 def _int(value: str) -> int | None:
@@ -168,35 +155,6 @@ def parse_flower(value: str) -> tuple[int | None, int | None, bool] | None:
         return None
     total = any(word in lowered for word in ("fertig", "gesamt", "total", "seed to"))
     return low, high, total
-
-
-def parse_received(value: str) -> str | None:
-    """Eingang in 'JJJJ-MM', 'JJJJ' oder 'JJJJ-JJJJ' umwandeln (None = unbekanntes Format)."""
-    value = value.strip()
-
-    def month(y: int, m: int) -> str | None:
-        return f"{y:04d}-{m:02d}" if 1 <= m <= 12 and 1900 <= y <= 2100 else None
-
-    if m := re.fullmatch(r"(\d{4})\s*[-–/]\s*(\d{4})", value):
-        first, last = int(m[1]), int(m[2])
-        return f"{first}-{last}" if last > first else str(first)
-    if m := re.fullmatch(r"(\d{4})-(\d{1,2})(-\d{1,2}([ T].*)?)?", value):
-        return month(int(m[1]), int(m[2]))
-    if m := re.fullmatch(r"\d{1,2}\.(\d{1,2})\.(\d{2}|\d{4})", value):
-        year = int(m[2])
-        return month(year + 2000 if year < 100 else year, int(m[1]))
-    if m := re.fullmatch(r"(\d{1,2})/\d{1,2}/(\d{4})", value):
-        return month(int(m[2]), int(m[1]))
-    if m := re.fullmatch(r"(\d{1,2})[./](\d{4})", value):
-        return month(int(m[2]), int(m[1]))
-    if re.fullmatch(r"\d{4}", value):
-        return value if 1900 <= int(value) <= 2100 else None
-    if m := re.fullmatch(r"([^\W\d_]+)\.?\s*'?(\d{2}|\d{4})", value):
-        number = _MONTHS.get(_norm(m[1])[:3]) or _MONTHS.get(_norm(m[1])[:4])
-        year = int(m[2])
-        if number:
-            return month(year + 2000 if year < 100 else year, number)
-    return None
 
 
 def split_breeder(value: str) -> tuple[str | None, str | None, str | None]:

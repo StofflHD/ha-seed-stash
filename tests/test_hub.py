@@ -28,10 +28,33 @@ def test_validate_received_ok(received: str) -> None:
     assert validate_seed({"name": "X", "received": received})["received"] == received
 
 
-@pytest.mark.parametrize("received", ["2024-13", "11.2024", "24", "2018-19"])
+@pytest.mark.parametrize(
+    ("received", "expected"),
+    [("11.2024", "2024-11"), ("03-2025", "2025-03"), ("Mrz-25", "2025-03"), ("", None)],
+)
+def test_validate_received_free_input(received: str, expected: str | None) -> None:
+    """Im Panel gelten dieselben Formate wie beim Import."""
+    assert validate_seed({"name": "X", "received": received})["received"] == expected
+
+
+@pytest.mark.parametrize("received", ["2024-13", "24", "2018-19", "irgendwann"])
 def test_validate_received_invalid(received: str) -> None:
-    with pytest.raises(ServiceValidationError):
+    with pytest.raises(ServiceValidationError, match="„Eingang“: nicht erkannt"):
         validate_seed({"name": "X", "received": received})
+
+
+@pytest.mark.parametrize(
+    ("data", "message"),
+    [
+        ({"name": " "}, "Bitte eine Sorte angeben"),
+        ({"name": "X", "flower_min": 0}, "Ungültige Angabe bei „Blütetage von“"),
+        ({"name": "X", "code": "X" * 21}, "„Kürzel“: Höchstens 20 Zeichen"),
+        ({"name": "X", "type": "bogus"}, "Ungültige Angabe bei „Art“"),
+    ],
+)
+def test_validate_messages(data: dict, message: str) -> None:
+    with pytest.raises(ServiceValidationError, match=message):
+        validate_seed(data)
 
 
 @pytest.mark.parametrize(
